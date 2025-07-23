@@ -1,4 +1,4 @@
-# surveillance_tab.py - BULLETPROOF WITH CLINICAL INTELLIGENCE
+# surveillance_tab.py - Enhanced with refresh system and clinical intelligence
 
 import tkinter as tk
 from tkinter import messagebox
@@ -139,7 +139,11 @@ def safe_database_operation(operation_name, operation_function):
         return False
 
 def build(tab_frame, patient_id, tabs=None):
-    """Build surveillance tab with clinical intelligence"""
+    """Build surveillance tab with enhanced refresh system"""
+    
+    # Clear previous widgets to avoid duplication
+    for widget in tab_frame.winfo_children():
+        widget.destroy()
     
     selected_ids = []
 
@@ -306,7 +310,7 @@ def build(tab_frame, patient_id, tabs=None):
         return errors, warnings
 
     def save_plan():
-        """Save surveillance plan with validation"""
+        """Save surveillance plan with enhanced refresh"""
         
         # Validate first
         errors, warnings = validate_surveillance_plan()
@@ -357,13 +361,6 @@ def build(tab_frame, patient_id, tabs=None):
                         VALUES (?, ?, 'Endoscopy', 'Auto-created from Barrett''s Surveillance', 0)
                     """, (patient_id, next_egd))
                     conn.commit()
-                    
-                    # Refresh recall tab if available
-                    if tabs:
-                        try:
-                            recall_tab.build(tabs.nametowidget(tabs.tabs()[5]), patient_id, tabs)
-                        except:
-                            pass
 
             conn.close()
             return True
@@ -372,9 +369,16 @@ def build(tab_frame, patient_id, tabs=None):
         if success:
             show_nice_success("Surveillance plan saved successfully!")
             load_data()
+            
+            # Trigger cross-tab refresh
+            try:
+                from main import tab_refresh_manager
+                tab_refresh_manager.refresh_related_tabs('surveillance', 'surveillance')
+            except:
+                pass
 
     def delete_plan():
-        """Delete surveillance plan with confirmation"""
+        """Delete surveillance plan with enhanced refresh"""
         selected = lst.curselection()
         if not selected:
             show_nice_error("No Selection", "Please select a surveillance plan to delete")
@@ -417,19 +421,19 @@ def build(tab_frame, patient_id, tabs=None):
                         cursor.execute("DELETE FROM tblRecall WHERE RecallID = ?", (recall_row[0],))
                         conn.commit()
 
-                        # Refresh recall tab if available
-                        if tabs:
-                            try:
-                                recall_tab.build(tabs.nametowidget(tabs.tabs()[5]), patient_id, tabs)
-                            except:
-                                pass
-
             conn.close()
             return True
 
         success = safe_database_operation("Delete surveillance plan", do_the_delete)
         if success:
             load_data()
+            
+            # Trigger cross-tab refresh
+            try:
+                from main import tab_refresh_manager
+                tab_refresh_manager.refresh_related_tabs('surveillance', 'surveillance')
+            except:
+                pass
 
     def get_last_barretts():
         """Get last Barrett's pathology safely"""
@@ -525,7 +529,7 @@ def build(tab_frame, patient_id, tabs=None):
     for years in [1, 2, 3, 5]:
         tk.Button(btns, text=f"+{years} yr", width=8, command=lambda y=years: set_interval(y)).pack(side=tk.LEFT, padx=3)
 
-    tk.Button(frm, text="Save Surveillance Plan", command=save_plan, 
+    tk.Button(frm, text="💾 Save Surveillance Plan", command=save_plan, 
              font=("Arial", 11, "bold"), bg="lightblue", padx=20, pady=5).grid(row=2, column=0, columnspan=4, pady=15)
 
     # Status legend
@@ -541,6 +545,7 @@ def build(tab_frame, patient_id, tabs=None):
     lst = tk.Listbox(tab_frame, width=85, height=8)
     lst.pack(pady=5, padx=10, anchor="w")
 
-    tk.Button(tab_frame, text="Delete Selected Plan", command=delete_plan).pack(pady=5, padx=10, anchor="w")
+    tk.Button(tab_frame, text="🗑️ Delete Selected Plan", command=delete_plan, 
+             font=("Arial", 10, "bold"), bg="lightcoral", padx=15, pady=5).pack(pady=5, padx=10, anchor="w")
 
     load_data()

@@ -13,9 +13,20 @@ def build(tab_frame, patient_id, tabs=None):
     scrollable_frame = scroll.scrollable_frame
     expanded_frame = None
 
-    tk.Button(scrollable_frame, text="Add Surgical", command=lambda: open_add_surgical(
-        tab_frame, patient_id, refresh_callback=lambda: build(tab_frame, patient_id)
-    )).grid(row=0, column=0, columnspan=5, pady=10, sticky="w")
+    # Enhanced refresh callback for add surgical
+    def add_surgical_with_refresh():
+        def refresh_callback():
+            build(tab_frame, patient_id, tabs)
+            # Trigger cross-tab refresh for surgical changes
+            try:
+                from main import tab_refresh_manager
+                tab_refresh_manager.refresh_related_tabs('surgical', 'surgical')
+            except:
+                pass
+        
+        open_add_surgical(tab_frame, patient_id, refresh_callback=refresh_callback)
+
+    tk.Button(scrollable_frame, text="Add Surgical", command=add_surgical_with_refresh).grid(row=0, column=0, columnspan=5, pady=10, sticky="w")
 
     def load_surgeries():
         nonlocal expanded_frame
@@ -77,11 +88,17 @@ def build(tab_frame, patient_id, tabs=None):
         data = dict(zip(columns, row))
         conn.close()
 
-        expanded_frame = tk.LabelFrame(scrollable_frame, text="Surgical Details", padx=10, pady=10)
+        expanded_frame = tk.LabelFrame(scrollable_frame, text="Surgical Details", padx=15, pady=15)
         expanded_frame.grid(column=0, columnspan=4, sticky="ew", padx=10, pady=10)
 
-        tk.Label(expanded_frame, text=f"Date: {data['SurgeryDate']}").pack(anchor="w")
-        tk.Label(expanded_frame, text=f"Surgeon: {data['SurgerySurgeon']}").pack(anchor="w")
+        # Header - always show
+        header_frame = tk.Frame(expanded_frame)
+        header_frame.pack(fill="x", pady=(0, 15))
+        
+        tk.Label(header_frame, text=f"🗓️ Surgery Date: {data.get('SurgeryDate', 'Not specified')}", 
+                font=("Arial", 12, "bold")).pack(anchor="w")
+        tk.Label(header_frame, text=f"👨‍⚕️ Surgeon: {data.get('SurgerySurgeon', 'Not specified')}", 
+                font=("Arial", 11)).pack(anchor="w")
 
         procedure_names = [
             "HiatalHernia", "ParaesophagealHernia", "MeshUsed", "GastricBypass", "SleeveGastrectomy", "Toupet", "TIF", "Nissen",
@@ -99,31 +116,97 @@ def build(tab_frame, patient_id, tabs=None):
                         .replace("GastricStimulator", "Gastric Stimulator")
                         for name in procedure_names]
 
+        # Group procedures by type for better organization
+        procedure_groups = [
+            ("🔧 Hernia Repairs", ["HiatalHernia", "ParaesophagealHernia", "MeshUsed"]),
+            ("🌯 Fundoplications", ["Nissen", "Toupet", "Dor"]),
+            ("⚡ POEM Procedures", ["GPOEM", "EPOEM", "ZPOEM"]),
+            ("🍽️ Bariatric Procedures", ["GastricBypass", "SleeveGastrectomy"]),
+            ("🔬 Other Anti-Reflux", ["TIF", "LINX", "Stretta"]),
+            ("🔪 Motility/Access", ["HellerMyotomy", "Pyloroplasty", "Dilation"]),
+            ("⚙️ Advanced/Other", ["Ablation", "GastricStimulator", "Revision", "Other"])
+        ]
+
         if editable:
             check_vars = {}
-            check_frame = tk.LabelFrame(expanded_frame, text="Procedures")
-            check_frame.pack(fill="x", pady=5)
-            for i, name in enumerate(procedure_names):
-                val = int(data.get(name, 0))
-                var = tk.IntVar(value=val)
-                cb = tk.Checkbutton(check_frame, text=check_labels[i], variable=var)
-                cb.grid(row=i // 2, column=i % 2, sticky="w", padx=5)
-                check_vars[name] = var
+            
+            for group_name, group_procedures in procedure_groups:
+                # Only show groups that have procedures or if we're editing
+                group_has_procedures = any(data.get(proc, 0) for proc in group_procedures)
+                
+                if group_has_procedures or editable:
+                    group_frame = tk.LabelFrame(expanded_frame, text=group_name, padx=10, pady=8)
+                    group_frame.pack(fill="x", pady=5)
+                    
+                    for proc in group_procedures:
+                        if proc in procedure_names:
+                            idx = procedure_names.index(proc)
+                            val = int(data.get(proc, 0))
+                            var = tk.IntVar(value=val)
+                            cb = tk.Checkbutton(group_frame, text=check_labels[idx], variable=var)
+                            cb.pack(anchor="w", pady=2)
+                            check_vars[proc] = var
         else:
-            performed = [check_labels[i] for i, name in enumerate(procedure_names) if data.get(name, 0)]
-            if performed:
-                tk.Label(expanded_frame, text="Procedures Performed:", font=("Arial", 10, "bold")).pack(anchor="w", pady=(10, 0))
-                for proc in performed:
-                    tk.Label(expanded_frame, text=f"• {proc}").pack(anchor="w", padx=10)
+            # VIEW MODE - Show organized by groups with clear visual indicators
+            procedures_performed = []
+            
+            for group_name, group_procedures in procedure_groups:
+                group_performed = []
+                
+                for proc in group_procedures:
+                    if proc in procedure_names and data.get(proc, 0):
+                        idx = procedure_names.index(proc)
+                        group_performed.append(check_labels[idx])
+                
+                if group_performed:
+                    procedures_performed.append((group_name, group_performed))
+            
+            if procedures_performed:
+                procedures_frame = tk.LabelFrame(expanded_frame, text="🏥 Procedures Performed", 
+                                               padx=15, pady=10)
+                procedures_frame.pack(fill="x", pady=10)
+                
+                for group_name, group_procs in procedures_performed:
+                    # Group header
+                    group_header = tk.Label(procedures_frame, text=group_name, 
+                                          font=("Arial", 10, "bold"), fg="darkblue")
+                    group_header.pack(anchor="w", pady=(5, 2))
+                    
+                    # Procedures in this group
+                    for proc in group_procs:
+                        proc_label = tk.Label(procedures_frame, text=f"   ✅ {proc}", 
+                                            font=("Arial", 9), fg="darkgreen")
+                        proc_label.pack(anchor="w", padx=20)
             else:
-                tk.Label(expanded_frame, text="No procedures recorded.").pack(anchor="w")
+                no_procedures_frame = tk.Frame(expanded_frame, bg="lightyellow", relief="solid", bd=1)
+                no_procedures_frame.pack(fill="x", pady=10)
+                tk.Label(no_procedures_frame, text="ℹ️ No specific procedures recorded for this surgery", 
+                        bg="lightyellow", font=("Arial", 10, "italic"), pady=10).pack()
 
-        tk.Label(expanded_frame, text="Notes:").pack(anchor="w")
-        notes = tk.Text(expanded_frame, height=4)
-        notes.insert("1.0", data.get("Notes", ""))
-        if not editable:
-            notes.config(state="disabled")
-        notes.pack(fill="x")
+        # Notes section
+        notes_frame = tk.LabelFrame(expanded_frame, text="📝 Operative Notes", padx=10, pady=8)
+        notes_frame.pack(fill="x", pady=10)
+        
+        if editable:
+            notes = tk.Text(notes_frame, height=4, wrap="word")
+            notes.insert("1.0", data.get("Notes", ""))
+            notes.pack(fill="x", pady=5)
+        else:
+            # View mode for notes
+            notes_content = data.get("Notes", "")
+            if notes_content and notes_content.strip():
+                # Create a frame with border to mimic text area appearance
+                notes_display_frame = tk.Frame(notes_frame, relief="sunken", bd=1)
+                notes_display_frame.pack(fill="x", pady=5)
+                notes_label = tk.Label(notes_display_frame, text=notes_content.strip(), 
+                                     anchor="nw", justify="left", wraplength=500, 
+                                     padx=8, pady=8, font=("Arial", 9))
+                notes_label.pack(fill="both")
+            else:
+                no_notes_label = tk.Label(notes_frame, text="No operative notes recorded", 
+                                        relief="sunken", bd=1, anchor="w", padx=8, pady=8, 
+                                        fg="gray", font=("Arial", 9, "italic"))
+                no_notes_label.pack(fill="x", pady=5)
 
         def save():
             try:
@@ -135,22 +218,33 @@ def build(tab_frame, patient_id, tabs=None):
                         Notes = ?
                     WHERE SurgeryID = ?
                 ''', (
-                    *[check_vars[f].get() for f in procedure_names],
+                    *[check_vars.get(f, tk.IntVar()).get() for f in procedure_names],
                     notes.get("1.0", "end").strip(),
                     surgery_id
                 ))
                 conn.commit()
                 conn.close()
-                messagebox.showinfo("Saved", "Changes saved.")
-                build(tab_frame, patient_id)
+                messagebox.showinfo("Saved", "Surgical details saved successfully.")
+                
+                # Refresh current tab and trigger cross-tab refresh
+                build(tab_frame, patient_id, tabs)
+                try:
+                    from main import tab_refresh_manager
+                    tab_refresh_manager.refresh_related_tabs('surgical', 'surgical')
+                except:
+                    pass
+                    
             except Exception as e:
                 messagebox.showerror("Error", str(e))
 
         if editable:
-            tk.Button(expanded_frame, text="Save Changes", command=save).pack(pady=10)
+            save_frame = tk.Frame(expanded_frame)
+            save_frame.pack(pady=15)
+            tk.Button(save_frame, text="💾 Save Changes", command=save,
+                     font=("Arial", 11, "bold"), bg="lightgreen", padx=20, pady=8).pack()
 
     def delete_surgery(surgery_id):
-        if not messagebox.askyesno("Confirm Delete", "Are you sure you want to delete this record?"):
+        if not messagebox.askyesno("Confirm Delete", "Are you sure you want to delete this surgical record?"):
             return
         try:
             conn = sqlite3.connect("gerd_center.db")
@@ -158,7 +252,16 @@ def build(tab_frame, patient_id, tabs=None):
             cursor.execute("DELETE FROM tblSurgicalHistory WHERE SurgeryID = ?", (surgery_id,))
             conn.commit()
             conn.close()
-            build(tab_frame, patient_id)
+            messagebox.showinfo("Deleted", "Surgical record deleted successfully.")
+            
+            # Refresh current tab and trigger cross-tab refresh
+            build(tab_frame, patient_id, tabs)
+            try:
+                from main import tab_refresh_manager
+                tab_refresh_manager.refresh_related_tabs('surgical', 'surgical')
+            except:
+                pass
+                
         except Exception as e:
             messagebox.showerror("Error", str(e))
 

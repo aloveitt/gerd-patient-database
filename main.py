@@ -9,6 +9,128 @@ import time
 import os
 from datetime import datetime, date, timedelta
 
+class TabRefreshManager:
+    """Manages cross-tab refreshes when data changes"""
+    
+    def __init__(self):
+        self.tabs_widget = None
+        self.patient_id = None
+        self.tab_builders = {}
+        self.app_instance = None
+        
+    def register_tabs(self, tabs_widget, patient_id, tab_builders, app_instance):
+        """Register the tab system"""
+        self.tabs_widget = tabs_widget
+        self.patient_id = patient_id
+        self.tab_builders = tab_builders
+        self.app_instance = app_instance
+    
+    def refresh_related_tabs(self, changed_tab, data_type):
+        """Refresh tabs that depend on the changed data"""
+        
+        # Define which tabs need refreshing based on data changes
+        refresh_map = {
+            'pathology': ['surveillance', 'recalls'],  # Barrett's changes affect surveillance
+            'diagnostics': ['surveillance'],            # EGD results affect surveillance  
+            'surgical': ['surveillance', 'recalls'],    # Surgery affects follow-up plans
+            'surveillance': ['recalls'],                # Surveillance plans create recalls
+            'demographics': ['all']                     # Name changes affect everywhere
+        }
+        
+        tabs_to_refresh = refresh_map.get(data_type, [])
+        
+        if 'all' in tabs_to_refresh:
+            # Refresh all tabs
+            for tab_name, builder in self.tab_builders.items():
+                if tab_name != changed_tab:
+                    self._refresh_tab(tab_name, builder)
+        else:
+            # Refresh specific tabs
+            for tab_name in tabs_to_refresh:
+                if tab_name in self.tab_builders and tab_name != changed_tab:
+                    builder = self.tab_builders[tab_name]
+                    self._refresh_tab(tab_name, builder)
+    
+    def _refresh_tab(self, tab_name, builder):
+        """Actually refresh a specific tab"""
+        try:
+            # Get the tab frame
+            tab_index = list(self.tab_builders.keys()).index(tab_name)
+            tab_frame = self.tabs_widget.nametowidget(self.tabs_widget.tabs()[tab_index])
+            
+            # Rebuild the tab
+            builder(tab_frame, self.patient_id, self.tabs_widget)
+            
+        except Exception as e:
+            print(f"Error refreshing {tab_name} tab: {e}")
+    
+    def refresh_all_tabs(self):
+        """Force refresh all tabs - for manual refresh button"""
+        for tab_name, builder in self.tab_builders.items():
+            self._refresh_tab(tab_name, builder)
+
+# Global instance
+tab_refresh_manager = TabRefreshManager()
+
+class ResponsiveWindowManager:
+    """Manages responsive window sizing and layout"""
+    
+    @staticmethod
+    def get_screen_dimensions():
+        """Get screen dimensions safely"""
+        try:
+            # Use existing root window if available
+            root = tk._default_root
+            if root is None:
+                root = tk.Tk()
+                root.withdraw()
+                screen_width = root.winfo_screenwidth()
+                screen_height = root.winfo_screenheight()
+                root.destroy()
+            else:
+                screen_width = root.winfo_screenwidth()
+                screen_height = root.winfo_screenheight()
+        except:
+            # Fallback to common resolution
+            screen_width, screen_height = 1920, 1080
+            
+        return screen_width, screen_height
+    
+    @staticmethod
+    def calculate_optimal_size(min_width=800, min_height=600, max_width_percent=0.9, max_height_percent=0.85):
+        """Calculate optimal window size based on screen"""
+        screen_width, screen_height = ResponsiveWindowManager.get_screen_dimensions()
+        
+        # Calculate maximum dimensions (percentage of screen)
+        max_width = int(screen_width * max_width_percent)
+        max_height = int(screen_height * max_height_percent)
+        
+        # Use larger of minimum or calculated size
+        optimal_width = max(min_width, min(max_width, 1400))  # Default preference
+        optimal_height = max(min_height, min(max_height, 900))
+        
+        return optimal_width, optimal_height
+    
+    @staticmethod
+    def center_window(window, width=None, height=None):
+        """Center window on screen with optional size"""
+        if width is None or height is None:
+            width, height = ResponsiveWindowManager.calculate_optimal_size()
+        
+        screen_width, screen_height = ResponsiveWindowManager.get_screen_dimensions()
+        
+        # Calculate center position
+        x = (screen_width - width) // 2
+        y = (screen_height - height) // 2
+        
+        # Ensure window isn't off-screen
+        x = max(0, x)
+        y = max(0, y)
+        
+        window.geometry(f"{width}x{height}+{x}+{y}")
+        
+        return width, height
+
 class ModernMedicalTheme:
     """Modern medical UI theme colors and styles"""
     
@@ -127,305 +249,72 @@ class ModernButton(tk.Button):
         
         super().__init__(parent, **final_config)
 
-class BulkPrintDialog:
-    """Modern bulk print dialog"""
-    
-    def __init__(self, parent, patient_list):
-        self.parent = parent
-        self.patient_list = patient_list
-        self.cancelled = False
-        self.setup_modern_dialog()
-    
-    def setup_modern_dialog(self):
-        """Create modern bulk print dialog"""
-        self.dialog = tk.Toplevel(self.parent)
-        self.dialog.title("Clinical Summary Generator")
-        self.dialog.geometry("600x500")
-        self.dialog.configure(bg=ModernMedicalTheme.LIGHT_GRAY)
-        self.dialog.transient(self.parent)
-        self.dialog.grab_set()
-        
-        # Center the dialog
-        self.dialog.update_idletasks()
-        x = (self.dialog.winfo_screenwidth() // 2) - (600 // 2)
-        y = (self.dialog.winfo_screenheight() // 2) - (500 // 2)
-        self.dialog.geometry(f"600x500+{x}+{y}")
-        
-        # Header
-        header = tk.Frame(self.dialog, bg=ModernMedicalTheme.PRIMARY_BLUE, height=80)
-        header.pack(fill="x")
-        header.pack_propagate(False)
-        
-        tk.Label(header, text="🖨️ Clinical Summary Generator", 
-                font=ModernMedicalTheme.FONT_LARGE, 
-                fg=ModernMedicalTheme.WHITE, 
-                bg=ModernMedicalTheme.PRIMARY_BLUE).pack(expand=True)
-        
-        # Main content
-        main_frame = tk.Frame(self.dialog, bg=ModernMedicalTheme.LIGHT_GRAY)
-        main_frame.pack(fill="both", expand=True, padx=20, pady=20)
-        
-        # Instructions card
-        inst_card = ModernCard(main_frame, title="Instructions")
-        inst_card.pack(fill="x", pady=(0, 15))
-        
-        tk.Label(inst_card.content_frame, 
-                text="Generate professional clinical summaries for multiple patients. "
-                     "Select patients below and choose your output format.",
-                font=ModernMedicalTheme.FONT_BODY,
-                bg=ModernMedicalTheme.WHITE,
-                wraplength=500, justify="left").pack(anchor="w")
-        
-        # Patient selection card
-        patient_card = ModernCard(main_frame, title=f"Patient Selection ({len(self.patient_list)} patients)")
-        patient_card.pack(fill="both", expand=True, pady=(0, 15))
-        
-        # Selection controls
-        controls_frame = tk.Frame(patient_card.content_frame, bg=ModernMedicalTheme.WHITE)
-        controls_frame.pack(fill="x", pady=(0, 10))
-        
-        ModernButton(controls_frame, text="✅ Select All", style="success",
-                    command=self.select_all).pack(side="left", padx=(0, 10))
-        ModernButton(controls_frame, text="❌ Clear All", style="secondary",
-                    command=self.select_none).pack(side="left")
-        
-        # Patient list with modern styling
-        list_frame = tk.Frame(patient_card.content_frame, bg=ModernMedicalTheme.WHITE)
-        list_frame.pack(fill="both", expand=True)
-        
-        # Scrollable patient list
-        canvas = tk.Canvas(list_frame, bg=ModernMedicalTheme.WHITE, highlightthickness=0)
-        scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=canvas.yview)
-        self.scrollable_frame = tk.Frame(canvas, bg=ModernMedicalTheme.WHITE)
-        
-        self.scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-        
-        canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-        
-        # Add patients with modern checkboxes
-        self.patient_vars = {}
-        for i, (pid, first, last, mrn) in enumerate(self.patient_list):
-            var = tk.IntVar(value=1)
-            self.patient_vars[pid] = var
-            
-            # Patient row frame
-            row_frame = tk.Frame(self.scrollable_frame, bg=ModernMedicalTheme.WHITE)
-            row_frame.pack(fill="x", padx=5, pady=2)
-            
-            # Modern checkbox
-            cb = tk.Checkbutton(row_frame, 
-                              text=f"{last}, {first} (MRN: {mrn})",
-                              variable=var,
-                              font=ModernMedicalTheme.FONT_BODY,
-                              bg=ModernMedicalTheme.WHITE,
-                              fg=ModernMedicalTheme.GRAY_800,
-                              selectcolor=ModernMedicalTheme.WHITE,
-                              activebackground=ModernMedicalTheme.WHITE)
-            cb.pack(anchor="w", padx=5, pady=5)
-            
-            # Add hover effect
-            if i % 2 == 0:
-                row_frame.configure(bg=ModernMedicalTheme.GRAY_100)
-                cb.configure(bg=ModernMedicalTheme.GRAY_100, activebackground=ModernMedicalTheme.GRAY_100)
-        
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
-        
-        # Output options card
-        output_card = ModernCard(main_frame, title="Output Options")
-        output_card.pack(fill="x", pady=(0, 15))
-        
-        self.output_var = tk.StringVar(value="individual")
-        
-        tk.Radiobutton(output_card.content_frame, 
-                      text="📄 Individual PDFs (one file per patient)", 
-                      variable=self.output_var, value="individual",
-                      font=ModernMedicalTheme.FONT_BODY,
-                      bg=ModernMedicalTheme.WHITE,
-                      fg=ModernMedicalTheme.GRAY_800,
-                      selectcolor=ModernMedicalTheme.WHITE,
-                      activebackground=ModernMedicalTheme.WHITE).pack(anchor="w", pady=5)
-        
-        tk.Radiobutton(output_card.content_frame, 
-                      text="📋 Combined PDF (all patients in one file)", 
-                      variable=self.output_var, value="combined",
-                      font=ModernMedicalTheme.FONT_BODY,
-                      bg=ModernMedicalTheme.WHITE,
-                      fg=ModernMedicalTheme.GRAY_800,
-                      selectcolor=ModernMedicalTheme.WHITE,
-                      activebackground=ModernMedicalTheme.WHITE).pack(anchor="w", pady=5)
-        
-        # Action buttons
-        button_frame = tk.Frame(main_frame, bg=ModernMedicalTheme.LIGHT_GRAY)
-        button_frame.pack(fill="x")
-        
-        ModernButton(button_frame, text="🚀 Generate Summaries", style="primary",
-                    font=ModernMedicalTheme.FONT_SUBHEADING,
-                    command=self.start_bulk_print, padx=30, pady=12).pack(side="left")
-        
-        ModernButton(button_frame, text="Cancel", style="secondary",
-                    command=self.cancel, padx=30, pady=12).pack(side="right")
-    
-    def select_all(self):
-        for var in self.patient_vars.values():
-            var.set(1)
-    
-    def select_none(self):
-        for var in self.patient_vars.values():
-            var.set(0)
-    
-    def start_bulk_print(self):
-        selected_patients = []
-        for pid, var in self.patient_vars.items():
-            if var.get():
-                for patient_data in self.patient_list:
-                    if patient_data[0] == pid:
-                        selected_patients.append(patient_data)
-                        break
-        
-        if not selected_patients:
-            messagebox.showwarning("No Selection", "Please select at least one patient to print.")
-            return
-        
-        self.dialog.destroy()
-        threading.Thread(target=self.bulk_print_worker, args=(selected_patients,), daemon=True).start()
-    
-    def bulk_print_worker(self, selected_patients):
-        # Modern progress dialog
-        progress_window = tk.Toplevel(self.parent)
-        progress_window.title("Generating Clinical Summaries")
-        progress_window.geometry("450x200")
-        progress_window.configure(bg=ModernMedicalTheme.LIGHT_GRAY)
-        progress_window.transient(self.parent)
-        progress_window.grab_set()
-        
-        # Center progress window
-        progress_window.update_idletasks()
-        x = (progress_window.winfo_screenwidth() // 2) - (450 // 2)
-        y = (progress_window.winfo_screenheight() // 2) - (200 // 2)
-        progress_window.geometry(f"450x200+{x}+{y}")
-        
-        # Progress header
-        header = tk.Frame(progress_window, bg=ModernMedicalTheme.ACCENT_TEAL, height=60)
-        header.pack(fill="x")
-        header.pack_propagate(False)
-        
-        tk.Label(header, text="🖨️ Generating Clinical Summaries", 
-                font=ModernMedicalTheme.FONT_HEADING, 
-                fg=ModernMedicalTheme.WHITE, 
-                bg=ModernMedicalTheme.ACCENT_TEAL).pack(expand=True)
-        
-        # Progress content
-        content = tk.Frame(progress_window, bg=ModernMedicalTheme.LIGHT_GRAY)
-        content.pack(fill="both", expand=True, padx=20, pady=20)
-        
-        progress_label = tk.Label(content, text="Initializing...", 
-                                font=ModernMedicalTheme.FONT_BODY,
-                                bg=ModernMedicalTheme.LIGHT_GRAY,
-                                fg=ModernMedicalTheme.GRAY_800)
-        progress_label.pack(pady=10)
-        
-        # Modern progress bar
-        progress_bar = ttk.Progressbar(content, length=400, mode='determinate')
-        progress_bar.pack(pady=10)
-        progress_bar['maximum'] = len(selected_patients)
-        
-        ModernButton(content, text="Cancel", style="secondary",
-                    command=lambda: setattr(self, 'cancelled', True)).pack(pady=10)
-        
-        # Generate summaries (same logic as before)
-        generated_files = []
-        
-        for i, (pid, first, last, mrn) in enumerate(selected_patients):
-            if self.cancelled:
-                break
-            
-            progress_label.config(text=f"Generating summary for {last}, {first}...")
-            progress_bar['value'] = i
-            progress_window.update()
-            
-            try:
-                filepath = print_summary.generate_pdf(pid)
-                if filepath:
-                    generated_files.append((filepath, f"{last}, {first}"))
-                time.sleep(0.1)
-            except Exception as e:
-                print(f"Error generating summary for {last}, {first}: {e}")
-                continue
-        
-        progress_bar['value'] = len(selected_patients)
-        
-        if not self.cancelled:
-            progress_label.config(text="Complete! Opening summaries...")
-            progress_window.update()
-            
-            for filepath, patient_name in generated_files[:5]:
-                try:
-                    import webbrowser
-                    webbrowser.open_new(filepath)
-                    time.sleep(0.5)
-                except:
-                    pass
-            
-            progress_window.destroy()
-            
-            # Modern success dialog
-            success_dialog = tk.Toplevel(self.parent)
-            success_dialog.title("Success")
-            success_dialog.geometry("400x250")
-            success_dialog.configure(bg=ModernMedicalTheme.LIGHT_GRAY)
-            success_dialog.transient(self.parent)
-            success_dialog.grab_set()
-            
-            # Success header
-            success_header = tk.Frame(success_dialog, bg=ModernMedicalTheme.SUCCESS_GREEN, height=60)
-            success_header.pack(fill="x")
-            success_header.pack_propagate(False)
-            
-            tk.Label(success_header, text="🎉 Success!", 
-                    font=ModernMedicalTheme.FONT_HEADING, 
-                    fg=ModernMedicalTheme.WHITE, 
-                    bg=ModernMedicalTheme.SUCCESS_GREEN).pack(expand=True)
-            
-            # Success content
-            success_content = tk.Frame(success_dialog, bg=ModernMedicalTheme.LIGHT_GRAY)
-            success_content.pack(fill="both", expand=True, padx=20, pady=20)
-            
-            tk.Label(success_content, 
-                    text=f"Generated {len(generated_files)} clinical summaries!\n\n"
-                         f"Files saved to temporary directory.\n"
-                         f"First {min(5, len(generated_files))} files opened automatically.",
-                    font=ModernMedicalTheme.FONT_BODY,
-                    bg=ModernMedicalTheme.LIGHT_GRAY,
-                    fg=ModernMedicalTheme.GRAY_800,
-                    justify="center").pack(expand=True)
-            
-            ModernButton(success_content, text="OK", style="primary",
-                        command=success_dialog.destroy).pack()
-        else:
-            progress_window.destroy()
-    
-    def cancel(self):
-        self.dialog.destroy()
-
 class ModernGERDApp(tk.Tk):
-    """Modern medical interface for GERD patient management"""
+    """Modern medical interface for GERD patient management with responsive design"""
     
     def __init__(self):
         super().__init__()
+        
         self.title("Minnesota Reflux & Heartburn Center - Clinical Management System")
-        self.state('zoomed')
-        self.configure(bg=ModernMedicalTheme.LIGHT_GRAY)
+        
+        # Setup responsive window
+        self.setup_responsive_window()
+        
+        # Configure responsive layout
+        self.setup_responsive_layout()
         
         self.patient_id = None
         self.results_list = []
         
         self.setup_modern_interface()
         self.search_patients()
+        
+        # Handle window resize events
+        self.bind("<Configure>", self.on_window_resize)
+
+    def setup_responsive_window(self):
+        """Setup responsive window sizing"""
+        # Calculate optimal size
+        width, height = ResponsiveWindowManager.calculate_optimal_size(
+            min_width=1200, min_height=800
+        )
+        
+        # Center window
+        ResponsiveWindowManager.center_window(self, width, height)
+        
+        # Make resizable with constraints
+        self.minsize(1000, 700)
+        self.resizable(True, True)
+        
+        # Configure for different screen sizes
+        screen_width, screen_height = ResponsiveWindowManager.get_screen_dimensions()
+        
+        if screen_width < 1366:  # Smaller screens
+            self.small_screen_mode = True
+            self.sidebar_width = 300
+        else:  # Larger screens
+            self.small_screen_mode = False
+            self.sidebar_width = 350
+
+    def setup_responsive_layout(self):
+        """Setup responsive grid layout"""
+        self.configure(bg=ModernMedicalTheme.LIGHT_GRAY)
+        
+        # Make main window responsive
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(1, weight=1)  # Main content area
+
+    def on_window_resize(self, event):
+        """Handle window resize events"""
+        if event.widget == self:
+            # Adjust layout based on window size
+            current_width = self.winfo_width()
+            
+            # Adjust sidebar width for small windows
+            if current_width < 1000 and hasattr(self, 'sidebar'):
+                self.sidebar.configure(width=250)
+            elif hasattr(self, 'sidebar'):
+                self.sidebar.configure(width=self.sidebar_width)
 
     def setup_modern_interface(self):
         """Create modern medical interface"""
@@ -482,9 +371,12 @@ class ModernGERDApp(tk.Tk):
 
     def create_sidebar(self, parent):
         """Create modern sidebar with cards"""
-        sidebar = tk.Frame(parent, bg=ModernMedicalTheme.LIGHT_GRAY, width=350)
+        sidebar = tk.Frame(parent, bg=ModernMedicalTheme.LIGHT_GRAY, width=self.sidebar_width)
         sidebar.pack(side="left", fill="y", padx=(0, 20))
         sidebar.pack_propagate(False)
+        
+        # Store reference for resize handling
+        self.sidebar = sidebar
         
         # Patient search card
         search_card = ModernCard(sidebar, title="🔍 Patient Search")
@@ -587,7 +479,7 @@ class ModernGERDApp(tk.Tk):
             self.results_listbox.insert(tk.END, display)
 
     def load_selected_patient(self):
-        """Load selected patient with modern interface"""
+        """Load selected patient with modern interface and refresh system"""
         selected = self.results_listbox.curselection()
         if not selected:
             return
@@ -611,11 +503,11 @@ class ModernGERDApp(tk.Tk):
             # Modern patient header
             self.create_patient_header(first, last, mrn, dob)
             
-            # Load patient tabs with modern styling
+            # Load patient tabs with refresh system
             self.load_patient_tabs()
 
     def create_patient_header(self, first, last, mrn, dob):
-        """Create modern patient header"""
+        """Create modern patient header with refresh button"""
         header_card = ModernCard(self.content_frame, bg_color=ModernMedicalTheme.SECONDARY_BLUE)
         header_card.pack(fill="x", pady=(0, 20))
         
@@ -652,16 +544,24 @@ class ModernGERDApp(tk.Tk):
         actions_frame = tk.Frame(header_content, bg=ModernMedicalTheme.SECONDARY_BLUE)
         actions_frame.pack(side="right")
         
+        # Store reference for refresh button
+        self.patient_header_actions = actions_frame
+        
         ModernButton(actions_frame, text="🖨️ Print Summary", 
                     style="success", 
                     command=lambda: print_summary.generate_pdf(self.patient_id)).pack(pady=(0, 10))
         
         ModernButton(actions_frame, text="⚡ Quick Actions", 
                     style="warning", 
-                    command=lambda: self.show_quick_actions(self.patient_id)).pack()
+                    command=lambda: self.show_quick_actions(self.patient_id)).pack(pady=(0, 10))
+        
+        # Add refresh button
+        ModernButton(actions_frame, text="🔄 Refresh All", 
+                    style="secondary", 
+                    command=tab_refresh_manager.refresh_all_tabs).pack()
 
     def load_patient_tabs(self):
-        """Load patient tabs with modern styling"""
+        """Load patient tabs with enhanced refresh system"""
         from demographics_tab import build as build_demographics
         from diagnostics_tab import build as build_diagnostics
         from surgical_tab import build as build_surgical
@@ -680,40 +580,57 @@ class ModernGERDApp(tk.Tk):
         self.tabs = ttk.Notebook(self.content_frame, style='Modern.TNotebook')
         self.tabs.pack(fill="both", expand=True)
 
+        # Enhanced tab builders with refresh callbacks
+        tab_builders = {
+            'demographics': lambda frame, pid, tabs: build_demographics(frame, pid, tabs, 
+                                                                       on_demographics_updated=lambda: self._handle_data_change('demographics', 'demographics')),
+            'diagnostics': lambda frame, pid, tabs: build_diagnostics(frame, pid, tabs),
+            'surgical': lambda frame, pid, tabs: build_surgical(frame, pid, tabs),
+            'pathology': lambda frame, pid, tabs: build_pathology(frame, pid, tabs),
+            'surveillance': lambda frame, pid, tabs: build_surveillance(frame, pid, tabs),
+            'recalls': lambda frame, pid, tabs: build_recall(frame, pid, tabs)
+        }
+
         tab_configs = [
-            ("👤 Demographics", build_demographics),
-            ("🔍 Diagnostics", build_diagnostics),
-            ("🏥 Surgical History", build_surgical),
-            ("🧪 Pathology", build_pathology),
-            ("📊 Surveillance", build_surveillance),
-            ("📞 Recalls", build_recall)
+            ("👤 Demographics", "demographics"),
+            ("🔍 Diagnostics", "diagnostics"),
+            ("🏥 Surgical History", "surgical"),
+            ("🧪 Pathology", "pathology"),
+            ("📊 Surveillance", "surveillance"),
+            ("📞 Recalls", "recalls")
         ]
 
-        for label, builder in tab_configs:
+        # Create tabs
+        for label, tab_key in tab_configs:
             frame = ttk.Frame(self.tabs)
             frame.configure(style='Modern.TFrame')
             
-            if label == "👤 Demographics":
-                builder(frame, self.patient_id, self.tabs, on_demographics_updated=self.search_patients)
-            else:
-                builder(frame, self.patient_id, self.tabs)
+            # Build the tab
+            tab_builders[tab_key](frame, self.patient_id, self.tabs)
             
             self.tabs.add(frame, text=label)
+
+        # Register with refresh manager
+        tab_refresh_manager.register_tabs(self.tabs, self.patient_id, tab_builders, self)
+
+    def _handle_data_change(self, tab_name, data_type):
+        """Handle when data changes in a tab"""
+        tab_refresh_manager.refresh_related_tabs(tab_name, data_type)
 
     def show_quick_actions(self, patient_id):
         """Modern quick actions dialog"""
         dialog = tk.Toplevel(self)
         dialog.title("Quick Patient Actions")
-        dialog.geometry("300x350")
+        
+        # Use responsive sizing
+        width, height = ResponsiveWindowManager.calculate_optimal_size(
+            min_width=300, min_height=350, max_width_percent=0.3, max_height_percent=0.5
+        )
+        ResponsiveWindowManager.center_window(dialog, width, height)
+        
         dialog.configure(bg=ModernMedicalTheme.LIGHT_GRAY)
         dialog.transient(self)
         dialog.grab_set()
-        
-        # Center dialog
-        dialog.update_idletasks()
-        x = (dialog.winfo_screenwidth() // 2) - (300 // 2)
-        y = (dialog.winfo_screenheight() // 2) - (350 // 2)
-        dialog.geometry(f"300x350+{x}+{y}")
         
         # Header
         header = tk.Frame(dialog, bg=ModernMedicalTheme.ACCENT_TEAL, height=60)
@@ -748,41 +665,22 @@ class ModernGERDApp(tk.Tk):
         dialog.destroy()
         self.tabs.select(tab_index)
 
-    def bulk_print_all_patients(self):
-        """Modern bulk print all patients"""
-        try:
-            conn = sqlite3.connect("gerd_center.db")
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT PatientID, FirstName, LastName, MRN
-                FROM tblPatients
-                ORDER BY LastName, FirstName
-            """)
-            all_patients = cursor.fetchall()
-            conn.close()
-            
-            if not all_patients:
-                messagebox.showinfo("No Patients", "No patients found in database.")
-                return
-            
-            if len(all_patients) > 50:
-                if not messagebox.askyesno("Large Print Job", 
-                    f"This will generate {len(all_patients)} clinical summaries. "
-                    f"This may take several minutes. Continue?"):
-                    return
-            
-            BulkPrintDialog(self, all_patients)
-            
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to load patients: {str(e)}")
+    def add_patient_popup(self):
+        """Add patient with modern workflow"""
+        from add_patient import build
 
-    def bulk_print_search_results(self):
-        """Modern bulk print search results"""
-        if not self.results_list:
-            messagebox.showinfo("No Results", "No search results to print. Try searching for patients first.")
-            return
-        
-        BulkPrintDialog(self, self.results_list)
+        def handle_new_patient(patient_id):
+            self.search_patients()
+            
+            for i, row in enumerate(self.results_list):
+                if row[0] == patient_id:
+                    self.results_listbox.selection_clear(0, tk.END)
+                    self.results_listbox.selection_set(i)
+                    self.results_listbox.see(i)
+                    self.load_selected_patient()
+                    break
+
+        build(on_save_callback=handle_new_patient)
 
     def delete_patient(self):
         """Modern delete patient confirmation"""
@@ -798,16 +696,16 @@ class ModernGERDApp(tk.Tk):
         # Modern confirmation dialog
         confirm_dialog = tk.Toplevel(self)
         confirm_dialog.title("Confirm Patient Deletion")
-        confirm_dialog.geometry("450x300")
+        
+        # Use responsive sizing
+        width, height = ResponsiveWindowManager.calculate_optimal_size(
+            min_width=450, min_height=300, max_width_percent=0.4, max_height_percent=0.4
+        )
+        ResponsiveWindowManager.center_window(confirm_dialog, width, height)
+        
         confirm_dialog.configure(bg=ModernMedicalTheme.LIGHT_GRAY)
         confirm_dialog.transient(self)
         confirm_dialog.grab_set()
-        
-        # Center dialog
-        confirm_dialog.update_idletasks()
-        x = (confirm_dialog.winfo_screenwidth() // 2) - (450 // 2)
-        y = (confirm_dialog.winfo_screenheight() // 2) - (300 // 2)
-        confirm_dialog.geometry(f"450x300+{x}+{y}")
         
         # Danger header
         header = tk.Frame(confirm_dialog, bg=ModernMedicalTheme.DANGER_RED, height=60)
@@ -887,22 +785,44 @@ class ModernGERDApp(tk.Tk):
         ModernButton(button_frame, text="Cancel", style="secondary", 
                     command=confirm_dialog.destroy).pack(side="right")
 
-    def add_patient_popup(self):
-        """Add patient with modern workflow"""
-        from add_patient import build
-
-        def handle_new_patient(patient_id):
-            self.search_patients()
+    def bulk_print_all_patients(self):
+        """Modern bulk print all patients"""
+        try:
+            conn = sqlite3.connect("gerd_center.db")
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT PatientID, FirstName, LastName, MRN
+                FROM tblPatients
+                ORDER BY LastName, FirstName
+            """)
+            all_patients = cursor.fetchall()
+            conn.close()
             
-            for i, row in enumerate(self.results_list):
-                if row[0] == patient_id:
-                    self.results_listbox.selection_clear(0, tk.END)
-                    self.results_listbox.selection_set(i)
-                    self.results_listbox.see(i)
-                    self.load_selected_patient()
-                    break
+            if not all_patients:
+                messagebox.showinfo("No Patients", "No patients found in database.")
+                return
+            
+            if len(all_patients) > 50:
+                if not messagebox.askyesno("Large Print Job", 
+                    f"This will generate {len(all_patients)} clinical summaries. "
+                    f"This may take several minutes. Continue?"):
+                    return
+            
+            # Use responsive bulk print dialog
+            from bulk_print_dialog import ResponsiveBulkPrintDialog
+            ResponsiveBulkPrintDialog(self, all_patients)
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to load patients: {str(e)}")
 
-        build(on_save_callback=handle_new_patient)
+    def bulk_print_search_results(self):
+        """Modern bulk print search results"""
+        if not self.results_list:
+            messagebox.showinfo("No Results", "No search results to print. Try searching for patients first.")
+            return
+        
+        from bulk_print_dialog import ResponsiveBulkPrintDialog
+        ResponsiveBulkPrintDialog(self, self.results_list)
 
     def load_recall_report(self):
         """Load modern recall report"""

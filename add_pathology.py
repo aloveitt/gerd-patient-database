@@ -1,11 +1,50 @@
-# add_pathology.py - BULLETPROOF VERSION
+# add_pathology.py - Enhanced with refresh system and responsive design
 
 import tkinter as tk
 from tkinter import ttk, messagebox
 from tkcalendar import DateEntry
 import sqlite3
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 import re
+
+# Import responsive window manager
+def get_screen_dimensions():
+    """Get screen dimensions safely"""
+    try:
+        root = tk._default_root
+        if root is None:
+            root = tk.Tk()
+            root.withdraw()
+            screen_width = root.winfo_screenwidth()
+            screen_height = root.winfo_screenheight()
+            root.destroy()
+        else:
+            screen_width = root.winfo_screenwidth()
+            screen_height = root.winfo_screenheight()
+    except:
+        screen_width, screen_height = 1920, 1080
+    return screen_width, screen_height
+
+def calculate_optimal_size(min_width=400, min_height=300, max_width_percent=0.7, max_height_percent=0.8):
+    """Calculate optimal window size"""
+    screen_width, screen_height = get_screen_dimensions()
+    max_width = int(screen_width * max_width_percent)
+    max_height = int(screen_height * max_height_percent)
+    optimal_width = max(min_width, min(max_width, 700))
+    optimal_height = max(min_height, min(max_height, 800))
+    return optimal_width, optimal_height
+
+def center_window(window, width=None, height=None):
+    """Center window on screen"""
+    if width is None or height is None:
+        width, height = calculate_optimal_size()
+    screen_width, screen_height = get_screen_dimensions()
+    x = (screen_width - width) // 2
+    y = (screen_height - height) // 2
+    x = max(0, x)
+    y = max(0, y)
+    window.geometry(f"{width}x{height}+{x}+{y}")
+    return width, height
 
 def is_good_date(date_obj):
     """Check if a pathology date makes sense"""
@@ -82,12 +121,20 @@ def safe_database_operation(operation_name, operation_function):
         return False
 
 def open_add_pathology(patient_id, refresh_callback):
-    """Open add pathology window - NOW SUPER BULLETPROOF!"""
+    """Open add pathology window with enhanced refresh system"""
     
     popup = tk.Toplevel()
     popup.title("Add Pathology Entry")
-    popup.geometry("550x700")
+    popup.transient(popup.master)
     popup.grab_set()
+    
+    # Use responsive sizing
+    width, height = calculate_optimal_size(550, 700)
+    center_window(popup, width, height)
+    
+    # Make resizable with constraints
+    popup.minsize(500, 600)
+    popup.resizable(True, True)
 
     def check_all_pathology_data():
         """Check if all the pathology data makes sense"""
@@ -149,84 +196,119 @@ def open_add_pathology(patient_id, refresh_callback):
         
         return errors, warnings
 
+    # Create main scrollable frame
+    main_frame = tk.Frame(popup)
+    main_frame.pack(fill="both", expand=True, padx=15, pady=15)
+    
+    # Header
+    header_frame = tk.Frame(main_frame)
+    header_frame.pack(fill="x", pady=(0, 20))
+    
+    tk.Label(header_frame, text="🧪 Add New Pathology Entry", 
+             font=("Arial", 14, "bold"), fg="darkblue").pack(anchor="w")
+    tk.Label(header_frame, text="Enter pathology results and findings", 
+             font=("Arial", 10), fg="gray").pack(anchor="w")
+
     # Date picker
-    tk.Label(popup, text="Pathology Date:", font=("Arial", 10, "bold")).grid(row=0, column=0, sticky="e", padx=5, pady=8)
-    entry_date = DateEntry(popup, date_pattern="yyyy-mm-dd", width=15)
-    entry_date.grid(row=0, column=1, padx=5, pady=8, sticky="w")
+    date_frame = tk.Frame(main_frame)
+    date_frame.pack(fill="x", pady=(0, 15))
+    tk.Label(date_frame, text="Pathology Date:", font=("Arial", 10, "bold")).pack(anchor="w")
+    entry_date = DateEntry(date_frame, date_pattern="yyyy-mm-dd", width=15)
+    entry_date.pack(anchor="w", pady=5)
 
     # Test types section
-    test_frame = tk.LabelFrame(popup, text="Test Types Performed", font=("Arial", 10, "bold"), padx=10, pady=10)
-    test_frame.grid(row=1, column=0, columnspan=2, padx=10, pady=10, sticky="ew")
+    test_frame = tk.LabelFrame(main_frame, text="Test Types Performed", font=("Arial", 10, "bold"), padx=10, pady=10)
+    test_frame.pack(fill="x", pady=(0, 15))
+
+    test_grid = tk.Frame(test_frame)
+    test_grid.pack(fill="x")
 
     var_biopsy = tk.IntVar()
-    tk.Checkbutton(test_frame, text="Biopsy", variable=var_biopsy, font=("Arial", 10)).grid(row=0, column=0, sticky="w", pady=2)
+    tk.Checkbutton(test_grid, text="Biopsy", variable=var_biopsy, font=("Arial", 10)).grid(row=0, column=0, sticky="w", pady=2, padx=(0, 20))
     
     var_wats3d = tk.IntVar()
-    tk.Checkbutton(test_frame, text="WATS3D", variable=var_wats3d, font=("Arial", 10)).grid(row=0, column=1, sticky="w", pady=2)
+    tk.Checkbutton(test_grid, text="WATS3D", variable=var_wats3d, font=("Arial", 10)).grid(row=0, column=1, sticky="w", pady=2, padx=(0, 20))
     
     var_esopredict = tk.IntVar()
-    chk_esopredict = tk.Checkbutton(test_frame, text="EsoPredict", variable=var_esopredict, font=("Arial", 10))
-    chk_esopredict.grid(row=1, column=0, sticky="w", pady=2)
+    chk_esopredict = tk.Checkbutton(test_grid, text="EsoPredict", variable=var_esopredict, font=("Arial", 10))
+    chk_esopredict.grid(row=1, column=0, sticky="w", pady=2, padx=(0, 20))
     
     var_tissuecypher = tk.IntVar()
-    chk_tissuecypher = tk.Checkbutton(test_frame, text="TissueCypher", variable=var_tissuecypher, font=("Arial", 10))
-    chk_tissuecypher.grid(row=1, column=1, sticky="w", pady=2)
+    chk_tissuecypher = tk.Checkbutton(test_grid, text="TissueCypher", variable=var_tissuecypher, font=("Arial", 10))
+    chk_tissuecypher.grid(row=1, column=1, sticky="w", pady=2, padx=(0, 20))
 
     # Findings section
-    findings_frame = tk.LabelFrame(popup, text="Pathology Findings", font=("Arial", 10, "bold"), padx=10, pady=10)
-    findings_frame.grid(row=2, column=0, columnspan=2, padx=10, pady=10, sticky="ew")
+    findings_frame = tk.LabelFrame(main_frame, text="Pathology Findings", font=("Arial", 10, "bold"), padx=10, pady=10)
+    findings_frame.pack(fill="x", pady=(0, 15))
 
-    # Barrett's and dysplasia (Row 1)
+    # Barrett's and dysplasia
+    barrett_frame = tk.Frame(findings_frame)
+    barrett_frame.pack(fill="x", pady=5)
+
     var_barretts = tk.IntVar()
-    chk_barretts = tk.Checkbutton(findings_frame, text="Barrett's Esophagus", variable=var_barretts, 
+    chk_barretts = tk.Checkbutton(barrett_frame, text="Barrett's Esophagus", variable=var_barretts, 
                                  command=lambda: toggle_dysplasia(), font=("Arial", 10))
-    chk_barretts.grid(row=0, column=0, sticky="w", padx=5, pady=3)
+    chk_barretts.pack(side="left")
 
-    tk.Label(findings_frame, text="Dysplasia Grade:", font=("Arial", 10)).grid(row=0, column=1, sticky="e", padx=5, pady=3)
-    cbo_dysplasia = ttk.Combobox(findings_frame,
+    tk.Label(barrett_frame, text="Dysplasia Grade:", font=("Arial", 10)).pack(side="left", padx=(20, 5))
+    cbo_dysplasia = ttk.Combobox(barrett_frame,
         values=["", "NGIM", "No Dysplasia", "Indeterminate", "Low Grade", "High Grade"],
         state="disabled", width=17)
-    cbo_dysplasia.grid(row=0, column=2, sticky="w", padx=5, pady=3)
+    cbo_dysplasia.pack(side="left", padx=5)
 
-    # EoE and eosinophil count (Row 2)
+    # EoE and eosinophil count
+    eoe_frame = tk.Frame(findings_frame)
+    eoe_frame.pack(fill="x", pady=5)
+
     var_eoe = tk.IntVar()
-    chk_eoe = tk.Checkbutton(findings_frame, text="Eosinophilic Esophagitis (EoE)", variable=var_eoe, 
+    chk_eoe = tk.Checkbutton(eoe_frame, text="Eosinophilic Esophagitis (EoE)", variable=var_eoe, 
                             command=lambda: toggle_eosinophils(), font=("Arial", 10))
-    chk_eoe.grid(row=1, column=0, sticky="w", padx=5, pady=3)
+    chk_eoe.pack(side="left")
 
-    tk.Label(findings_frame, text="Eosinophil Count:", font=("Arial", 10)).grid(row=1, column=1, sticky="e", padx=5, pady=3)
-    entry_eos = tk.Entry(findings_frame, width=12, state="disabled")
-    entry_eos.grid(row=1, column=2, sticky="w", padx=5, pady=3)
-    tk.Label(findings_frame, text="(per hpf)", font=("Arial", 8), fg="gray").grid(row=1, column=3, sticky="w", padx=2)
+    tk.Label(eoe_frame, text="Eosinophil Count:", font=("Arial", 10)).pack(side="left", padx=(20, 5))
+    entry_eos = tk.Entry(eoe_frame, width=12, state="disabled")
+    entry_eos.pack(side="left", padx=5)
+    tk.Label(eoe_frame, text="(per hpf)", font=("Arial", 8), fg="gray").pack(side="left", padx=2)
 
-    # H. pylori and Atrophic Gastritis (Row 3)
+    # Other findings
+    other_frame = tk.Frame(findings_frame)
+    other_frame.pack(fill="x", pady=5)
+
     var_hpylori = tk.IntVar()
-    tk.Checkbutton(findings_frame, text="H. pylori", variable=var_hpylori, font=("Arial", 10)).grid(row=2, column=0, sticky="w", padx=5, pady=3)
+    tk.Checkbutton(other_frame, text="H. pylori", variable=var_hpylori, font=("Arial", 10)).pack(side="left")
 
     var_gastritis = tk.IntVar()
-    tk.Checkbutton(findings_frame, text="Atrophic Gastritis", variable=var_gastritis, font=("Arial", 10)).grid(row=2, column=1, sticky="w", padx=5, pady=3)
+    tk.Checkbutton(other_frame, text="Atrophic Gastritis", variable=var_gastritis, font=("Arial", 10)).pack(side="left", padx=(20, 0))
 
-    # Other finding (Row 4)
-    tk.Label(findings_frame, text="Other Finding:", font=("Arial", 10)).grid(row=3, column=0, sticky="e", padx=5, pady=3)
-    entry_other = tk.Entry(findings_frame, width=40)
-    entry_other.grid(row=3, column=1, columnspan=2, sticky="w", padx=5, pady=3)
+    # Other finding entry
+    other_entry_frame = tk.Frame(findings_frame)
+    other_entry_frame.pack(fill="x", pady=5)
+    tk.Label(other_entry_frame, text="Other Finding:", font=("Arial", 10)).pack(anchor="w")
+    entry_other = tk.Entry(other_entry_frame, width=50)
+    entry_other.pack(fill="x", pady=2)
 
     # Risk scores section
-    risk_frame = tk.LabelFrame(popup, text="Risk Assessment Scores", font=("Arial", 10, "bold"), padx=10, pady=10)
-    risk_frame.grid(row=3, column=0, columnspan=2, padx=10, pady=10, sticky="ew")
+    risk_frame = tk.LabelFrame(main_frame, text="Risk Assessment Scores", font=("Arial", 10, "bold"), padx=10, pady=10)
+    risk_frame.pack(fill="x", pady=(0, 15))
 
-    tk.Label(risk_frame, text="EsoPredict Risk:", font=("Arial", 10)).grid(row=0, column=0, sticky="e", padx=5, pady=5)
-    entry_esopredict = tk.Entry(risk_frame, width=40)
-    entry_esopredict.grid(row=0, column=1, padx=5, pady=5, sticky="w")
+    eso_risk_frame = tk.Frame(risk_frame)
+    eso_risk_frame.pack(fill="x", pady=5)
+    tk.Label(eso_risk_frame, text="EsoPredict Risk:", font=("Arial", 10)).pack(anchor="w")
+    entry_esopredict = tk.Entry(eso_risk_frame, width=50)
+    entry_esopredict.pack(fill="x", pady=2)
 
-    tk.Label(risk_frame, text="TissueCypher Risk:", font=("Arial", 10)).grid(row=1, column=0, sticky="e", padx=5, pady=5)
-    entry_tissuecypher = tk.Entry(risk_frame, width=40)
-    entry_tissuecypher.grid(row=1, column=1, padx=5, pady=5, sticky="w")
+    tc_risk_frame = tk.Frame(risk_frame)
+    tc_risk_frame.pack(fill="x", pady=5)
+    tk.Label(tc_risk_frame, text="TissueCypher Risk:", font=("Arial", 10)).pack(anchor="w")
+    entry_tissuecypher = tk.Entry(tc_risk_frame, width=50)
+    entry_tissuecypher.pack(fill="x", pady=2)
 
     # Notes section
-    tk.Label(popup, text="Additional Notes:", font=("Arial", 10, "bold")).grid(row=4, column=0, sticky="nw", padx=10, pady=(10, 5))
-    txt_notes = tk.Text(popup, width=50, height=4, wrap="word")
-    txt_notes.grid(row=4, column=1, padx=10, pady=(10, 5), sticky="ew")
+    notes_frame = tk.Frame(main_frame)
+    notes_frame.pack(fill="x", pady=(0, 15))
+    tk.Label(notes_frame, text="Additional Notes:", font=("Arial", 10, "bold")).pack(anchor="w")
+    txt_notes = tk.Text(notes_frame, width=50, height=4, wrap="word")
+    txt_notes.pack(fill="x", pady=5)
 
     def toggle_dysplasia():
         """Enable/disable dysplasia dropdown based on Barrett's checkbox"""
@@ -258,7 +340,7 @@ def open_add_pathology(patient_id, refresh_callback):
         return None
 
     def save():
-        """Save pathology data with full validation"""
+        """Save pathology data with enhanced refresh system"""
         
         # Check all data first
         errors, warnings = check_all_pathology_data()
@@ -343,16 +425,20 @@ def open_add_pathology(patient_id, refresh_callback):
             popup.destroy()
             if refresh_callback:
                 refresh_callback()
+                
+            # Trigger cross-tab refresh
+            try:
+                from main import tab_refresh_manager
+                tab_refresh_manager.refresh_related_tabs('pathology', 'pathology')
+            except:
+                pass
 
     # Save button
-    save_frame = tk.Frame(popup)
-    save_frame.grid(row=5, column=0, columnspan=2, pady=15)
+    save_frame = tk.Frame(main_frame)
+    save_frame.pack(pady=20)
     
-    tk.Button(save_frame, text="Save Pathology Entry", command=save, 
-             font=("Arial", 11, "bold"), bg="lightgreen", padx=20, pady=8).pack()
+    tk.Button(save_frame, text="💾 Save Pathology Entry", command=save, 
+             font=("Arial", 11, "bold"), bg="lightgreen", padx=25, pady=10).pack()
 
-    # Make the popup resizable
-    popup.columnconfigure(1, weight=1)
-    
     # Set focus to date field
     entry_date.focus()

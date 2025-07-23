@@ -4,6 +4,45 @@ from tkcalendar import DateEntry
 import sqlite3
 from datetime import datetime, date
 
+# Import responsive window utilities
+def get_screen_dimensions():
+    """Get screen dimensions safely"""
+    try:
+        root = tk._default_root
+        if root is None:
+            root = tk.Tk()
+            root.withdraw()
+            screen_width = root.winfo_screenwidth()
+            screen_height = root.winfo_screenheight()
+            root.destroy()
+        else:
+            screen_width = root.winfo_screenwidth()
+            screen_height = root.winfo_screenheight()
+    except:
+        screen_width, screen_height = 1920, 1080
+    return screen_width, screen_height
+
+def calculate_optimal_size(min_width=700, min_height=600, max_width_percent=0.8, max_height_percent=0.9):
+    """Calculate optimal window size"""
+    screen_width, screen_height = get_screen_dimensions()
+    max_width = int(screen_width * max_width_percent)
+    max_height = int(screen_height * max_height_percent)
+    optimal_width = max(min_width, min(max_width, 900))
+    optimal_height = max(min_height, min(max_height, 700))
+    return optimal_width, optimal_height
+
+def center_window(window, width=None, height=None):
+    """Center window on screen"""
+    if width is None or height is None:
+        width, height = calculate_optimal_size()
+    screen_width, screen_height = get_screen_dimensions()
+    x = (screen_width - width) // 2
+    y = (screen_height - height) // 2
+    x = max(0, x)
+    y = max(0, y)
+    window.geometry(f"{width}x{height}+{x}+{y}")
+    return width, height
+
 def is_good_surgery_date(date_obj):
     """Check if a surgery date makes sense"""
     if not date_obj:
@@ -122,12 +161,20 @@ def safe_database_operation(operation_name, operation_function):
         return False
 
 def open_add_surgical(tab_frame, patient_id, refresh_callback=None):
-    """Open add surgical window - NOW WITH SURGICAL INTELLIGENCE AND PROPER SIZING!"""
+    """Open add surgical window with enhanced refresh system"""
     
     popup = tk.Toplevel()
     popup.title("Add Surgical Entry")
-    popup.geometry("700x600")  # Smaller height that fits on screen
+    popup.transient(popup.master)
     popup.grab_set()
+    
+    # Use responsive sizing
+    width, height = calculate_optimal_size(700, 600)
+    center_window(popup, width, height)
+    
+    # Make resizable with constraints
+    popup.minsize(600, 500)
+    popup.resizable(True, True)
     
     # Create main frame with scrollbar
     main_frame = tk.Frame(popup)
@@ -193,13 +240,26 @@ def open_add_surgical(tab_frame, patient_id, refresh_callback=None):
         
         return errors, warnings
 
+    # Header
+    header_frame = tk.Frame(scrollable_frame)
+    header_frame.pack(fill="x", pady=(0, 20))
+    
+    tk.Label(header_frame, text="🏥 Add New Surgical Entry", 
+             font=("Arial", 14, "bold"), fg="darkblue").pack(anchor="w")
+    tk.Label(header_frame, text="Enter surgical procedure details", 
+             font=("Arial", 10), fg="gray").pack(anchor="w")
+
     # Surgery date
-    tk.Label(scrollable_frame, text="Surgery Date:", font=("Arial", 10, "bold")).grid(row=0, column=0, sticky="e", padx=5, pady=8)
-    entry_date = DateEntry(scrollable_frame, date_pattern="yyyy-mm-dd", width=15)
-    entry_date.grid(row=0, column=1, padx=5, pady=8, sticky="w")
+    date_frame = tk.Frame(scrollable_frame)
+    date_frame.pack(fill="x", pady=8)
+    tk.Label(date_frame, text="Surgery Date:", font=("Arial", 10, "bold")).pack(anchor="w")
+    entry_date = DateEntry(date_frame, date_pattern="yyyy-mm-dd", width=15)
+    entry_date.pack(anchor="w", pady=5)
 
     # Surgeon selection
-    tk.Label(scrollable_frame, text="Surgeon:", font=("Arial", 10, "bold")).grid(row=1, column=0, sticky="e", padx=5, pady=8)
+    surgeon_frame = tk.Frame(scrollable_frame)
+    surgeon_frame.pack(fill="x", pady=8)
+    tk.Label(surgeon_frame, text="Surgeon:", font=("Arial", 10, "bold")).pack(anchor="w")
     
     def get_surgeon_list():
         """Get list of surgeons safely"""
@@ -214,13 +274,13 @@ def open_add_surgical(tab_frame, patient_id, refresh_callback=None):
             conn.close()
     
     surgeon_names = safe_database_operation("Load surgeon list", get_surgeon_list) or []
-    cbo_surgeon = ttk.Combobox(scrollable_frame, values=surgeon_names, state="readonly", width=25)
-    cbo_surgeon.grid(row=1, column=1, padx=5, pady=8, sticky="w")
+    cbo_surgeon = ttk.Combobox(surgeon_frame, values=surgeon_names, state="readonly", width=30)
+    cbo_surgeon.pack(anchor="w", pady=5)
 
     # Procedures section
     procedure_frame = tk.LabelFrame(scrollable_frame, text="Surgical Procedures Performed", 
                                    font=("Arial", 11, "bold"), padx=15, pady=15)
-    procedure_frame.grid(row=2, column=0, columnspan=2, padx=10, pady=15, sticky="ew")
+    procedure_frame.pack(fill="x", pady=15)
 
     # Define procedures with medical groupings and descriptions
     procedure_groups = [
@@ -288,9 +348,11 @@ def open_add_surgical(tab_frame, patient_id, refresh_callback=None):
         current_row += 1
 
     # Notes section
-    tk.Label(scrollable_frame, text="Operative Notes:", font=("Arial", 10, "bold")).grid(row=3, column=0, sticky="nw", padx=5, pady=(15, 5))
-    txt_notes = tk.Text(scrollable_frame, width=50, height=4, wrap="word")  # Smaller height
-    txt_notes.grid(row=3, column=1, padx=5, pady=(15, 5), sticky="ew")
+    notes_frame = tk.Frame(scrollable_frame)
+    notes_frame.pack(fill="x", pady=15)
+    tk.Label(notes_frame, text="Operative Notes:", font=("Arial", 10, "bold")).pack(anchor="w")
+    txt_notes = tk.Text(notes_frame, width=50, height=4, wrap="word")
+    txt_notes.pack(fill="x", pady=5)
 
     def get_clinical_recommendations():
         """Generate clinical recommendations based on selected procedures"""
@@ -323,7 +385,7 @@ def open_add_surgical(tab_frame, patient_id, refresh_callback=None):
         return recommendations
 
     def save():
-        """Save surgical data with full validation and clinical intelligence"""
+        """Save surgical data with enhanced refresh system"""
         
         # Check all data first
         errors, warnings = check_all_surgical_data()
@@ -405,12 +467,19 @@ def open_add_surgical(tab_frame, patient_id, refresh_callback=None):
             popup.destroy()
             if refresh_callback:
                 refresh_callback()
+                
+            # Trigger cross-tab refresh
+            try:
+                from main import tab_refresh_manager
+                tab_refresh_manager.refresh_related_tabs('surgical', 'surgical')
+            except:
+                pass
 
     # Save button
     save_frame = tk.Frame(scrollable_frame)
-    save_frame.grid(row=4, column=0, columnspan=2, pady=20)
+    save_frame.pack(pady=20)
     
-    tk.Button(save_frame, text="Save Surgical Procedure", command=save, 
+    tk.Button(save_frame, text="💾 Save Surgical Procedure", command=save, 
              font=("Arial", 11, "bold"), bg="lightblue", padx=25, pady=10).pack()
 
     # Make the scrollable content expandable

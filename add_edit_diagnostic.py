@@ -1,9 +1,50 @@
+# add_edit_diagnostic.py - Enhanced with refresh system and responsive design
+
 import tkinter as tk
 from tkinter import ttk, messagebox
 from tkcalendar import DateEntry
 import sqlite3
 from datetime import datetime, date
 import re
+
+# Import responsive window utilities
+def get_screen_dimensions():
+    """Get screen dimensions safely"""
+    try:
+        root = tk._default_root
+        if root is None:
+            root = tk.Tk()
+            root.withdraw()
+            screen_width = root.winfo_screenwidth()
+            screen_height = root.winfo_screenheight()
+            root.destroy()
+        else:
+            screen_width = root.winfo_screenwidth()
+            screen_height = root.winfo_screenheight()
+    except:
+        screen_width, screen_height = 1920, 1080
+    return screen_width, screen_height
+
+def calculate_optimal_size(min_width=600, min_height=800, max_width_percent=0.75, max_height_percent=0.95):
+    """Calculate optimal window size"""
+    screen_width, screen_height = get_screen_dimensions()
+    max_width = int(screen_width * max_width_percent)
+    max_height = int(screen_height * max_height_percent)
+    optimal_width = max(min_width, min(max_width, 800))
+    optimal_height = max(min_height, min(max_height, 900))
+    return optimal_width, optimal_height
+
+def center_window(window, width=None, height=None):
+    """Center window on screen"""
+    if width is None or height is None:
+        width, height = calculate_optimal_size()
+    screen_width, screen_height = get_screen_dimensions()
+    x = (screen_width - width) // 2
+    y = (screen_height - height) // 2
+    x = max(0, x)
+    y = max(0, y)
+    window.geometry(f"{width}x{height}+{x}+{y}")
+    return width, height
 
 def is_good_date(date_obj):
     """Check if a date makes sense for medical tests"""
@@ -69,12 +110,27 @@ def safe_database_operation(operation_name, operation_function):
         return False
 
 def open_add_edit_window(parent, patient_id, diagnostic_id=None, refresh_callback=None, view_only=False):
-    """Open the add/edit diagnostic window - NOW SUPER BULLETPROOF!"""
+    """Open the add/edit diagnostic window with enhanced refresh system"""
     
     window = tk.Toplevel(parent)
     window.title("View Diagnostic Test" if view_only else ("Edit Diagnostic Test" if diagnostic_id else "Add Diagnostic Test"))
-    window.geometry("600x800")
     window.transient(parent)
+
+    # Use responsive sizing
+    if view_only:
+        width, height = calculate_optimal_size(
+            min_width=700, min_height=600, max_width_percent=0.8, max_height_percent=0.9
+        )
+    else:
+        width, height = calculate_optimal_size(
+            min_width=600, min_height=800, max_width_percent=0.75, max_height_percent=0.95
+        )
+    
+    center_window(window, width, height)
+    
+    # Make resizable with constraints
+    window.minsize(500, 400)
+    window.resizable(True, True)
 
     # Get existing data if editing
     is_edit_mode = diagnostic_id is not None
@@ -93,6 +149,40 @@ def open_add_edit_window(parent, patient_id, diagnostic_id=None, refresh_callbac
             return {}
         
         data = safe_database_operation("Load diagnostic data", load_existing_data) or {}
+
+    # Create main scrollable frame
+    main_frame = tk.Frame(window)
+    main_frame.pack(fill="both", expand=True, padx=10, pady=10)
+    
+    # Create canvas and scrollbar for scrolling
+    canvas = tk.Canvas(main_frame)
+    scrollbar = ttk.Scrollbar(main_frame, orient="vertical", command=canvas.yview)
+    scrollable_frame = tk.Frame(canvas)
+    
+    scrollable_frame.bind(
+        "<Configure>",
+        lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+    )
+    
+    canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+    canvas.configure(yscrollcommand=scrollbar.set)
+    
+    # Pack canvas and scrollbar
+    canvas.pack(side="left", fill="both", expand=True)
+    scrollbar.pack(side="right", fill="y")
+    
+    # Enable mousewheel scrolling
+    def _on_mousewheel(event):
+        canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+    
+    def bind_mousewheel(event):
+        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+    
+    def unbind_mousewheel(event):
+        canvas.unbind_all("<MouseWheel>")
+    
+    canvas.bind("<Enter>", bind_mousewheel)
+    canvas.bind("<Leave>", unbind_mousewheel)
 
     def disable_widget(widget):
         """Safely disable widgets"""
@@ -130,17 +220,29 @@ def open_add_edit_window(parent, patient_id, diagnostic_id=None, refresh_callbac
         
         return errors
 
+    # Header
+    header_frame = tk.Frame(scrollable_frame)
+    header_frame.pack(fill="x", pady=(0, 20))
+    
+    title_text = "View Diagnostic Test" if view_only else ("Edit Diagnostic Test" if is_edit_mode else "Add Diagnostic Test")
+    tk.Label(header_frame, text=f"🔍 {title_text}", 
+             font=("Arial", 14, "bold"), fg="darkblue").pack(anchor="w")
+
     # Form fields
-    tk.Label(window, text="Test Date:", font=("Arial", 10, "bold")).pack(anchor="w", padx=10)
-    entry_date = DateEntry(window, width=12, background='darkblue', foreground='white', borderwidth=2, date_pattern='yyyy-mm-dd')
+    date_frame = tk.Frame(scrollable_frame)
+    date_frame.pack(fill="x", pady=5)
+    tk.Label(date_frame, text="Test Date:", font=("Arial", 10, "bold")).pack(anchor="w")
+    entry_date = DateEntry(date_frame, width=12, background='darkblue', foreground='white', borderwidth=2, date_pattern='yyyy-mm-dd')
     if "TestDate" in data:
         try:
             entry_date.set_date(data["TestDate"])
         except:
             pass  # Use default date if invalid
-    entry_date.pack(pady=5, padx=10, anchor="w")
+    entry_date.pack(pady=5, anchor="w")
 
-    tk.Label(window, text="Surgeon:", font=("Arial", 10, "bold")).pack(anchor="w", padx=10)
+    surgeon_frame = tk.Frame(scrollable_frame)
+    surgeon_frame.pack(fill="x", pady=5)
+    tk.Label(surgeon_frame, text="Surgeon:", font=("Arial", 10, "bold")).pack(anchor="w")
     surgeon_var = tk.StringVar()
     
     # Get surgeon list safely
@@ -156,16 +258,16 @@ def open_add_edit_window(parent, patient_id, diagnostic_id=None, refresh_callbac
             conn.close()
     
     surgeon_names = safe_database_operation("Load surgeon list", get_surgeon_list) or []
-    surgeon_combo = ttk.Combobox(window, textvariable=surgeon_var, values=surgeon_names, state="readonly")
+    surgeon_combo = ttk.Combobox(surgeon_frame, textvariable=surgeon_var, values=surgeon_names, state="readonly")
     surgeon_combo.set(data.get("Surgeon", ""))
-    surgeon_combo.pack(pady=5, padx=10, anchor="w")
+    surgeon_combo.pack(pady=5, anchor="w")
 
     section_frames = {}
 
     def create_section(name):
         """Create collapsible sections"""
-        section_frame = tk.Frame(window, bd=2, relief="groove", padx=5, pady=5)
-        section_frame.pack(fill="x", pady=5, padx=10)
+        section_frame = tk.Frame(scrollable_frame, bd=2, relief="groove", padx=5, pady=5)
+        section_frame.pack(fill="x", pady=5)
         toggle_btn = tk.Button(section_frame, text=f"► {name}", anchor="w", font=("Arial", 10, "bold"))
         toggle_btn.pack(fill="x")
         content_frame = tk.Frame(section_frame)
@@ -286,11 +388,11 @@ def open_add_edit_window(parent, patient_id, diagnostic_id=None, refresh_callbac
     ugi_notes.pack(fill="x", pady=2)
 
     # Other Notes Section
-    other_notes_label = tk.Label(window, text="Additional Notes:", font=("Arial", 10, "bold"))
-    other_notes_label.pack(anchor="w", padx=10, pady=(10, 2))
-    other_notes = tk.Text(window, height=4, wrap="word")
+    other_notes_label = tk.Label(scrollable_frame, text="Additional Notes:", font=("Arial", 10, "bold"))
+    other_notes_label.pack(anchor="w", pady=(10, 2))
+    other_notes = tk.Text(scrollable_frame, height=4, wrap="word")
     other_notes.insert("1.0", data.get("DiagnosticNotes", ""))
-    other_notes.pack(fill="x", padx=10, pady=5)
+    other_notes.pack(fill="x", pady=5)
 
     # If view-only, disable everything and expand relevant sections
     if view_only:
@@ -319,7 +421,7 @@ def open_add_edit_window(parent, patient_id, diagnostic_id=None, refresh_callbac
             disable_widget(widget)
 
     def save_diagnostic():
-        """Save the diagnostic data with full validation"""
+        """Save the diagnostic data with enhanced refresh"""
         
         # First, check all the data
         errors = check_all_diagnostic_data()
@@ -397,18 +499,27 @@ def open_add_edit_window(parent, patient_id, diagnostic_id=None, refresh_callbac
             window.destroy()
             if refresh_callback:
                 refresh_callback()
+                
+            # Trigger cross-tab refresh
+            try:
+                from main import tab_refresh_manager
+                tab_refresh_manager.refresh_related_tabs('diagnostics', 'diagnostics')
+            except:
+                pass
 
     # Save button (only if not view-only)
     if not view_only:
-        save_frame = tk.Frame(window)
-        save_frame.pack(pady=10)
+        save_frame = tk.Frame(scrollable_frame)
+        save_frame.pack(pady=15)
         
-        save_text = "Update Diagnostic Test" if is_edit_mode else "Save Diagnostic Test"
+        save_text = "💾 Update Diagnostic Test" if is_edit_mode else "💾 Save Diagnostic Test"
         tk.Button(save_frame, text=save_text, command=save_diagnostic, 
-                 font=("Arial", 11, "bold"), bg="lightblue", padx=20, pady=5).pack()
+                 font=("Arial", 11, "bold"), bg="lightblue", padx=25, pady=8).pack()
 
     # Close button
-    tk.Button(window, text="Close", command=window.destroy, padx=20, pady=5).pack(pady=5)
+    close_frame = tk.Frame(scrollable_frame)
+    close_frame.pack(pady=10)
+    tk.Button(close_frame, text="Close", command=window.destroy, padx=20, pady=5).pack()
 
     # Clean up on close
     window.protocol("WM_DELETE_WINDOW", window.destroy)
